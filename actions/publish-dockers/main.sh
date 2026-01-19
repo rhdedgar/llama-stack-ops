@@ -62,19 +62,25 @@ build_and_push_docker() {
   # Determine the tag suffix and build args based on PyPI source
   if [ "$PYPI_SOURCE" = "testpypi" ]; then
     TAG_SUFFIX="test-${VERSION}"
-    docker build "$LLAMA_STACK_DIR" \
+    BASE_TAG="llamastack/distribution-$distro:$TAG_SUFFIX-base"
+    docker buildx build "$LLAMA_STACK_DIR" \
+      --platform linux/amd64,linux/arm64 \
       -f "$LLAMA_STACK_DIR/containers/Containerfile" \
       --build-arg DISTRO_NAME=$distro \
       --build-arg INSTALL_MODE=test-pypi \
       --build-arg TEST_PYPI_VERSION=${VERSION} \
-      -t distribution-$distro:$TAG_SUFFIX
+      -t "$BASE_TAG" \
+      --push
   else
     TAG_SUFFIX="${VERSION}"
-    docker build "$LLAMA_STACK_DIR" \
+    BASE_TAG="llamastack/distribution-$distro:$TAG_SUFFIX-base"
+    docker buildx build "$LLAMA_STACK_DIR" \
+      --platform linux/amd64,linux/arm64 \
       -f "$LLAMA_STACK_DIR/containers/Containerfile" \
       --build-arg DISTRO_NAME=$distro \
       --build-arg PYPI_VERSION=${VERSION} \
-      -t distribution-$distro:$TAG_SUFFIX
+      -t "$BASE_TAG" \
+      --push
   fi
 
   rm -rf "$LLAMA_STACK_DIR"
@@ -83,7 +89,7 @@ build_and_push_docker() {
   TMP_BUILD_DIR=$(mktemp -d)
   CONTAINERFILE="$TMP_BUILD_DIR/Containerfile"
   cat > "$CONTAINERFILE" << EOF
-FROM distribution-$distro:$TAG_SUFFIX
+FROM $BASE_TAG
 USER root
 
 # Create group with GID 1001 and user with UID 1001
@@ -99,21 +105,27 @@ ENV HOME=/
 USER 1001
 EOF
 
-  docker build -t distribution-$distro:$TAG_SUFFIX -f "$CONTAINERFILE" "$TMP_BUILD_DIR"
+  echo "Building and pushing multi-arch OpenShift-compatible image"
+  if [ "$PYPI_SOURCE" = "testpypi" ]; then
+    FINAL_TAG="llamastack/distribution-$distro:$TAG_SUFFIX"
+    docker buildx build "$TMP_BUILD_DIR" \
+      --platform linux/amd64,linux/arm64 \
+      -f "$CONTAINERFILE" \
+      -t "$FINAL_TAG" \
+      --push
+  else
+    FINAL_TAG="llamastack/distribution-$distro:$TAG_SUFFIX"
+    LATEST_TAG="llamastack/distribution-$distro:latest"
+    docker buildx build "$TMP_BUILD_DIR" \
+      --platform linux/amd64,linux/arm64 \
+      -f "$CONTAINERFILE" \
+      -t "$FINAL_TAG" \
+      -t "$LATEST_TAG" \
+      --push
+  fi
   rm -rf "$TMP_BUILD_DIR"
 
   docker images | cat
-
-  echo "Pushing docker image"
-  if [ "$PYPI_SOURCE" = "testpypi" ]; then
-    docker tag distribution-$distro:test-${VERSION} llamastack/distribution-$distro:test-${VERSION}
-    docker push llamastack/distribution-$distro:test-${VERSION}
-  else
-    docker tag distribution-$distro:${VERSION} llamastack/distribution-$distro:${VERSION}
-    docker tag distribution-$distro:${VERSION} llamastack/distribution-$distro:latest
-    docker push llamastack/distribution-$distro:${VERSION}
-    docker push llamastack/distribution-$distro:latest
-  fi
 }
 
 if [ -z "$DISTROS" ]; then
