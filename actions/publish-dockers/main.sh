@@ -14,6 +14,9 @@ DISTROS=${DISTROS:-}
 
 set -euo pipefail
 
+# Docker build platforms for multi-arch builds
+DOCKER_PLATFORMS="linux/amd64,linux/arm64"
+
 release_exists() {
   local source=$1
   releases=$(curl -s https://${source}.org/pypi/llama-stack/json | jq -r '.releases | keys[]')
@@ -64,7 +67,7 @@ build_and_push_docker() {
     TAG_SUFFIX="test-${VERSION}"
     BASE_TAG="llamastack/distribution-$distro:$TAG_SUFFIX-base"
     docker buildx build "$LLAMA_STACK_DIR" \
-      --platform linux/amd64,linux/arm64 \
+      --platform "$DOCKER_PLATFORMS" \
       -f "$LLAMA_STACK_DIR/containers/Containerfile" \
       --build-arg DISTRO_NAME=$distro \
       --build-arg INSTALL_MODE=test-pypi \
@@ -75,7 +78,7 @@ build_and_push_docker() {
     TAG_SUFFIX="${VERSION}"
     BASE_TAG="llamastack/distribution-$distro:$TAG_SUFFIX-base"
     docker buildx build "$LLAMA_STACK_DIR" \
-      --platform linux/amd64,linux/arm64 \
+      --platform "$DOCKER_PLATFORMS" \
       -f "$LLAMA_STACK_DIR/containers/Containerfile" \
       --build-arg DISTRO_NAME=$distro \
       --build-arg PYPI_VERSION=${VERSION} \
@@ -85,7 +88,7 @@ build_and_push_docker() {
 
   rm -rf "$LLAMA_STACK_DIR"
 
-  # Build a second layer for OpenShift compatibility
+  # Build the second layer
   TMP_BUILD_DIR=$(mktemp -d)
   CONTAINERFILE="$TMP_BUILD_DIR/Containerfile"
   cat > "$CONTAINERFILE" << EOF
@@ -105,11 +108,11 @@ ENV HOME=/
 USER 1001
 EOF
 
-  echo "Building and pushing multi-arch OpenShift-compatible image"
+  echo "Building and pushing multi-arch image"
   if [ "$PYPI_SOURCE" = "testpypi" ]; then
     FINAL_TAG="llamastack/distribution-$distro:$TAG_SUFFIX"
     docker buildx build "$TMP_BUILD_DIR" \
-      --platform linux/amd64,linux/arm64 \
+      --platform "$DOCKER_PLATFORMS" \
       -f "$CONTAINERFILE" \
       -t "$FINAL_TAG" \
       --push
@@ -117,7 +120,7 @@ EOF
     FINAL_TAG="llamastack/distribution-$distro:$TAG_SUFFIX"
     LATEST_TAG="llamastack/distribution-$distro:latest"
     docker buildx build "$TMP_BUILD_DIR" \
-      --platform linux/amd64,linux/arm64 \
+      --platform "$DOCKER_PLATFORMS" \
       -f "$CONTAINERFILE" \
       -t "$FINAL_TAG" \
       -t "$LATEST_TAG" \
