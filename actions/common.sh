@@ -44,6 +44,10 @@ run_integration_tests() {
     echo "Skipping LLAMA_STACK_TEST_RECORDING_DIR for llama-stack < 0.4.0 (using default)"
   fi
 
+  # Set client timeout to handle long-running embedding tests
+  # Default is 30 seconds which is too short for some embedding operations
+  export LLAMA_STACK_CLIENT_TIMEOUT=${LLAMA_STACK_CLIENT_TIMEOUT:-300}
+
   echo "Running integration tests (text)"
   # Run with timeout and capture what's happening when it hangs
   timeout 180 bash -x llama-stack/scripts/integration-tests.sh \
